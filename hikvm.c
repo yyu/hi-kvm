@@ -76,13 +76,10 @@ void vm_init(struct vm *vm, size_t mem_size)
 	struct kvm_userspace_memory_region memreg;
 
 	vm->sys_fd = open("/dev/kvm", O_RDWR);
-
 	vm->fd = ioctl(vm->sys_fd, KVM_CREATE_VM, 0);
-
-        ioctl(vm->fd, KVM_SET_TSS_ADDR, 0xfffbd000);
-
+	//ioctl(vm->fd, KVM_SET_TSS_ADDR, 0xfffbd000);
 	vm->mem = mmap(NULL, mem_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-	madvise(vm->mem, mem_size, MADV_MERGEABLE);
+	//madvise(vm->mem, mem_size, MADV_MERGEABLE);
 
 	memreg.slot = 0;
 	memreg.flags = 0;
@@ -90,7 +87,7 @@ void vm_init(struct vm *vm, size_t mem_size)
 	memreg.memory_size = mem_size;
 	memreg.userspace_addr = (unsigned long)vm->mem;
 
-        ioctl(vm->fd, KVM_SET_USER_MEMORY_REGION, &memreg);
+	ioctl(vm->fd, KVM_SET_USER_MEMORY_REGION, &memreg);
 }
 
 struct vcpu {
@@ -100,15 +97,12 @@ struct vcpu {
 
 void vcpu_init(struct vm *vm, struct vcpu *vcpu)
 {
-	int vcpu_mmap_size;
-
 	vcpu->fd = ioctl(vm->fd, KVM_CREATE_VCPU, 0);
-
-	vcpu_mmap_size = ioctl(vm->sys_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
+	int vcpu_mmap_size = ioctl(vm->sys_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
 	vcpu->kvm_run = mmap(NULL, vcpu_mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpu->fd, 0);
 }
 
-int run_vm(struct vm *vm, struct vcpu *vcpu, size_t sz)
+int run_vm(struct vm *vm, struct vcpu *vcpu)
 {
 	struct kvm_regs regs;
 	uint64_t memval = 0;
@@ -137,10 +131,10 @@ int run_vm(struct vm *vm, struct vcpu *vcpu, size_t sz)
 
  check:
 	ioctl(vcpu->fd, KVM_GET_REGS, &regs);
-        assert(regs.rax == 42);
-	memcpy(&memval, &vm->mem[0x400], sz);
-        assert(memval == 42);
-	return 1;
+	assert(regs.rax == 42);
+	memcpy(&memval, &vm->mem[0x400], 2);
+	assert(memval == 42);
+	return 0;
 }
 
 extern const unsigned char guest16[], guest16_end[];
@@ -150,10 +144,10 @@ int run_real_mode(struct vm *vm, struct vcpu *vcpu)
 	struct kvm_sregs sregs;
 	struct kvm_regs regs;
 
-        ioctl(vcpu->fd, KVM_GET_SREGS, &sregs);
+	ioctl(vcpu->fd, KVM_GET_SREGS, &sregs);
 	sregs.cs.selector = 0;
 	sregs.cs.base = 0;
-        ioctl(vcpu->fd, KVM_SET_SREGS, &sregs);
+	ioctl(vcpu->fd, KVM_SET_SREGS, &sregs);
 
 	memset(&regs, 0, sizeof(regs));
 	/* Clear all FLAGS bits, except bit 1 which is always set. */
@@ -161,8 +155,8 @@ int run_real_mode(struct vm *vm, struct vcpu *vcpu)
 	regs.rip = 0;
 	ioctl(vcpu->fd, KVM_SET_REGS, &regs);
 
-	memcpy(vm->mem, guest16, guest16_end-guest16);
-	return run_vm(vm, vcpu, 2);
+	memcpy(vm->mem, guest16, guest16_end - guest16);
+	return run_vm(vm, vcpu);
 }
 
 int main()
@@ -172,6 +166,6 @@ int main()
 
 	vm_init(&vm, 0x200000);
 	vcpu_init(&vm, &vcpu);
-	return !run_real_mode(&vm, &vcpu);
+	return run_real_mode(&vm, &vcpu);
 }
 
